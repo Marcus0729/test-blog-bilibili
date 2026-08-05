@@ -3,8 +3,18 @@
 
   var STORAGE_KEY = 'visitedCities';
   var MODE_STORAGE_KEY = 'mapMode';
-  var CHINA_GEOJSON_URL = 'data/china.json';
+  var CHINA_GEOJSON_URL = 'data/china-cities.json';
   var MODES = ['off', 'province', 'city'];
+
+  // regionName -> display name, for tooltips over the city-level map.
+  var REGION_DISPLAY = {};
+  // province -> list of every regionName belonging to it, for province-wide highlighting.
+  var PROVINCE_REGIONS = {};
+  CITIES.forEach(function (c) {
+    REGION_DISPLAY[c.regionName] = c.name;
+    if (!PROVINCE_REGIONS[c.province]) PROVINCE_REGIONS[c.province] = [];
+    PROVINCE_REGIONS[c.province].push(c.regionName);
+  });
 
   var state = {
     mode: loadMode(),
@@ -72,7 +82,7 @@
         return res.json();
       })
       .then(function (geoJson) {
-        echarts.registerMap('china', geoJson);
+        echarts.registerMap('china-cities', geoJson);
         els.mapLoading.style.display = 'none';
         renderChart();
       })
@@ -93,16 +103,26 @@
       visitedProvinces[c.province] = true;
     });
 
-    var regions = showProvinceHighlight
-      ? Object.keys(visitedProvinces).map(function (name) {
-          return {
-            name: name,
-            itemStyle: {
-              areaColor: '#ffe1cc',
-            },
-          };
-        })
-      : [];
+    var litRegionNames;
+    if (showProvinceHighlight) {
+      litRegionNames = [];
+      Object.keys(visitedProvinces).forEach(function (province) {
+        litRegionNames = litRegionNames.concat(PROVINCE_REGIONS[province] || []);
+      });
+    } else if (showCities) {
+      litRegionNames = state.visited.map(function (c) {
+        return c.regionName;
+      });
+    } else {
+      litRegionNames = [];
+    }
+
+    var regions = litRegionNames.map(function (regionName) {
+      return {
+        name: regionName,
+        itemStyle: { areaColor: '#ffb37a' },
+      };
+    });
 
     var scatterData = showCities
       ? state.visited.map(function (c) {
@@ -113,32 +133,30 @@
         })
       : [];
 
+    var provinceLabelData = PROVINCE_LABELS.map(function (p) {
+      return { name: p.name, value: [p.lng, p.lat] };
+    });
+
     var option = {
       tooltip: {
-        show: showCities,
+        show: true,
         formatter: function (params) {
-          return params.name;
+          return REGION_DISPLAY[params.name] || params.name;
         },
       },
       geo: {
-        map: 'china',
+        map: 'china-cities',
         roam: true,
         zoom: 1.05,
-        label: {
-          show: true,
-          fontSize: 10,
-          color: '#9aa0a8',
-        },
+        label: { show: false },
         itemStyle: {
-          areaColor: showCities ? '#ececee' : '#e4e6ea',
-          borderColor: '#c7cad0',
-          borderWidth: 0.8,
+          areaColor: '#e6e8eb',
+          borderColor: '#d3d6da',
+          borderWidth: 0.6,
         },
         emphasis: {
-          itemStyle: {
-            areaColor: '#d8dade',
-          },
-          label: { show: true, color: '#6b7078' },
+          itemStyle: { areaColor: '#d8dade' },
+          label: { show: false },
         },
         select: {
           itemStyle: { areaColor: '#d8dade' },
@@ -146,6 +164,22 @@
         regions: regions,
       },
       series: [
+        {
+          name: '省份标注',
+          type: 'scatter',
+          coordinateSystem: 'geo',
+          data: provinceLabelData,
+          symbolSize: 2,
+          itemStyle: { color: '#c3c7cc', opacity: 1 },
+          silent: true,
+          label: {
+            show: true,
+            formatter: '{b}',
+            fontSize: 10,
+            color: '#9aa0a8',
+          },
+          tooltip: { show: false },
+        },
         {
           name: '到访城市',
           type: 'effectScatter',
