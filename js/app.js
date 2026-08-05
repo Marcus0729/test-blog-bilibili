@@ -95,10 +95,26 @@
       });
   }
 
+  // Bounding box + zoom heuristic so small prefecture-level cities are
+  // actually visible instead of being a speck on the full-country view.
+  function computeCityViewport(cities) {
+    if (!cities.length) return null;
+    var minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    cities.forEach(function (c) {
+      if (c.lng < minLng) minLng = c.lng;
+      if (c.lng > maxLng) maxLng = c.lng;
+      if (c.lat < minLat) minLat = c.lat;
+      if (c.lat > maxLat) maxLat = c.lat;
+    });
+    var lngSpan = Math.max(maxLng - minLng, 6) + 3;
+    var latSpan = Math.max(maxLat - minLat, 6) + 3;
+    var zoom = Math.min(62 / lngSpan, 51 / latSpan) * 1.05;
+    zoom = Math.max(1.05, Math.min(zoom, 12));
+    return { center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2], zoom: zoom };
+  }
+
   function renderChart() {
     if (!chart) return;
-
-    var showCityMarkers = state.mode === 'city';
 
     var visitedProvinces = {};
     state.visited.forEach(function (c) {
@@ -117,24 +133,30 @@
     }
 
     var regions = litRegionNames.map(function (regionName) {
-      return {
+      var region = {
         name: regionName,
         itemStyle: { areaColor: '#ffb37a' },
       };
+      if (state.mode === 'city') {
+        region.itemStyle.borderColor = '#e2571f';
+        region.itemStyle.borderWidth = 1.5;
+        region.label = {
+          show: true,
+          formatter: REGION_DISPLAY[regionName] || regionName,
+          fontSize: 12,
+          fontWeight: 600,
+          color: '#e2571f',
+        };
+      }
+      return region;
     });
-
-    var scatterData = showCityMarkers
-      ? state.visited.map(function (c) {
-          return {
-            name: c.name,
-            value: [c.lng, c.lat],
-          };
-        })
-      : [];
 
     var provinceLabelData = PROVINCE_LABELS.map(function (p) {
       return { name: p.name, value: [p.lng, p.lat] };
     });
+
+    var viewport =
+      state.mode === 'city' ? computeCityViewport(state.visited) : null;
 
     var option = {
       tooltip: {
@@ -146,7 +168,8 @@
       geo: {
         map: MODE_MAP[state.mode],
         roam: true,
-        zoom: 1.05,
+        zoom: viewport ? viewport.zoom : 1.05,
+        center: viewport ? viewport.center : null,
         label: { show: false },
         itemStyle: {
           areaColor: '#e6e8eb',
@@ -176,24 +199,6 @@
             formatter: '{b}',
             fontSize: 10,
             color: '#9aa0a8',
-          },
-          tooltip: { show: false },
-        },
-        {
-          name: '到访城市标注',
-          type: 'scatter',
-          coordinateSystem: 'geo',
-          data: scatterData,
-          symbolSize: 3,
-          itemStyle: { color: '#e2571f', opacity: 1 },
-          silent: true,
-          label: {
-            show: true,
-            formatter: '{b}',
-            position: 'right',
-            fontSize: 11,
-            fontWeight: 600,
-            color: '#e2571f',
           },
           tooltip: { show: false },
         },
