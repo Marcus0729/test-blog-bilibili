@@ -49,37 +49,34 @@ body {
   font-weight: 600;
 }
 
-.mode-toggle {
+.mode-switch {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 2px;
+  padding: 3px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg);
+}
+
+.mode-btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
 }
 
-.mode-toggle .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: all 0.2s ease;
+.mode-btn:hover {
+  color: var(--text);
 }
 
-.mode-toggle[aria-pressed="true"] {
-  background: var(--accent-soft);
-  border-color: #ffd6bf;
-  color: var(--accent);
-}
-
-.mode-toggle[aria-pressed="true"] .dot {
+.mode-btn.active {
   background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.18);
+  color: #fff;
+  font-weight: 600;
 }
 
 .layout {

@@ -2,10 +2,12 @@
   'use strict';
 
   var STORAGE_KEY = 'visitedCities';
+  var MODE_STORAGE_KEY = 'mapMode';
   var CHINA_GEOJSON_URL = 'data/china.json';
+  var MODES = ['off', 'province', 'city'];
 
   var state = {
-    lightMode: false,
+    mode: loadMode(),
     visited: loadVisited(),
     selectedCity: null,
     activeSuggestIndex: -1,
@@ -17,8 +19,7 @@
   var els = {
     mapContainer: document.getElementById('mapContainer'),
     mapLoading: document.getElementById('mapLoading'),
-    modeToggle: document.getElementById('modeToggle'),
-    modeToggleLabel: document.getElementById('modeToggleLabel'),
+    modeButtons: document.querySelectorAll('.mode-btn'),
     searchInput: document.getElementById('citySearchInput'),
     suggestList: document.getElementById('suggestList'),
     confirmBtn: document.getElementById('confirmAddBtn'),
@@ -39,6 +40,11 @@
 
   function saveVisited() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.visited));
+  }
+
+  function loadMode() {
+    var saved = localStorage.getItem(MODE_STORAGE_KEY);
+    return MODES.indexOf(saved) !== -1 ? saved : 'off';
   }
 
   function cityKey(city) {
@@ -79,21 +85,26 @@
   function renderChart() {
     if (!chart) return;
 
+    var showCities = state.mode !== 'off';
+    var showProvinceHighlight = state.mode === 'province';
+
     var visitedProvinces = {};
     state.visited.forEach(function (c) {
       visitedProvinces[c.province] = true;
     });
 
-    var regions = Object.keys(visitedProvinces).map(function (name) {
-      return {
-        name: name,
-        itemStyle: {
-          areaColor: '#ffe1cc',
-        },
-      };
-    });
+    var regions = showProvinceHighlight
+      ? Object.keys(visitedProvinces).map(function (name) {
+          return {
+            name: name,
+            itemStyle: {
+              areaColor: '#ffe1cc',
+            },
+          };
+        })
+      : [];
 
-    var scatterData = state.lightMode
+    var scatterData = showCities
       ? state.visited.map(function (c) {
           return {
             name: c.name,
@@ -104,7 +115,7 @@
 
     var option = {
       tooltip: {
-        show: state.lightMode,
+        show: showCities,
         formatter: function (params) {
           return params.name;
         },
@@ -113,9 +124,13 @@
         map: 'china',
         roam: true,
         zoom: 1.05,
-        label: { show: false },
+        label: {
+          show: true,
+          fontSize: 10,
+          color: '#9aa0a8',
+        },
         itemStyle: {
-          areaColor: state.lightMode ? '#ececee' : '#e4e6ea',
+          areaColor: showCities ? '#ececee' : '#e4e6ea',
           borderColor: '#c7cad0',
           borderWidth: 0.8,
         },
@@ -123,12 +138,12 @@
           itemStyle: {
             areaColor: '#d8dade',
           },
-          label: { show: false },
+          label: { show: true, color: '#6b7078' },
         },
         select: {
           itemStyle: { areaColor: '#d8dade' },
         },
-        regions: state.lightMode ? regions : [],
+        regions: regions,
       },
       series: [
         {
@@ -144,6 +159,14 @@
             shadowBlur: 12,
             shadowColor: 'rgba(255, 107, 53, 0.8)',
           },
+          label: {
+            show: true,
+            formatter: '{b}',
+            position: 'right',
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#e2571f',
+          },
           zlevel: 1,
         },
       ],
@@ -152,18 +175,29 @@
     chart.setOption(option, { notMerge: true });
   }
 
-  // ---------- Mode toggle ----------
+  // ---------- Mode switch ----------
 
-  function setLightMode(on) {
-    state.lightMode = on;
-    els.modeToggle.setAttribute('aria-pressed', String(on));
-    els.modeToggleLabel.textContent = '点亮地图模式：' + (on ? '开启' : '关闭');
+  function setMode(mode) {
+    if (MODES.indexOf(mode) === -1 || mode === state.mode) return;
+    state.mode = mode;
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
+    updateModeButtons();
     renderChart();
   }
 
-  els.modeToggle.addEventListener('click', function () {
-    setLightMode(!state.lightMode);
+  function updateModeButtons() {
+    els.modeButtons.forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.mode === state.mode);
+    });
+  }
+
+  els.modeButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setMode(btn.dataset.mode);
+    });
   });
+
+  updateModeButtons();
 
   // ---------- Search & suggestions ----------
 

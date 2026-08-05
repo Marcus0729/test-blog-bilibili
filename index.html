@@ -10,10 +10,11 @@
   <div class="app">
     <header class="topbar">
       <h1>我的中国足迹地图</h1>
-      <button id="modeToggle" class="mode-toggle" type="button" aria-pressed="false">
-        <span class="dot"></span>
-        <span id="modeToggleLabel">点亮地图模式：关闭</span>
-      </button>
+      <div class="mode-switch" role="group" aria-label="地图点亮模式">
+        <button class="mode-btn" data-mode="off" type="button">普通模式</button>
+        <button class="mode-btn" data-mode="province" type="button">省份点亮</button>
+        <button class="mode-btn" data-mode="city" type="button">仅点亮城市</button>
+      </div>
     </header>
 
     <main class="layout">
