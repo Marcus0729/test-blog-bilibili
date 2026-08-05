@@ -11,8 +11,11 @@
 
   // regionName -> display name, for tooltips over the city-level map.
   var REGION_DISPLAY = {};
+  // regionName -> full city record, for map-click selection in city mode.
+  var REGION_TO_CITY = {};
   CITIES.forEach(function (c) {
     REGION_DISPLAY[c.regionName] = c.name;
+    REGION_TO_CITY[c.regionName] = c;
   });
 
   var state = {
@@ -73,6 +76,13 @@
     chart = echarts.init(els.mapContainer);
     window.addEventListener('resize', function () {
       chart.resize();
+    });
+
+    chart.on('click', function (params) {
+      if (state.mode !== 'city' || params.componentType !== 'geo') return;
+      var city = REGION_TO_CITY[params.name];
+      if (!city) return;
+      selectCity(city);
     });
 
     function loadMap(url) {
