@@ -3,8 +3,17 @@
 
   var STORAGE_KEY = 'visitedCities';
   var MODE_STORAGE_KEY = 'mapMode';
-  var CHINA_GEOJSON_URL = 'data/china.json';
+  var PROVINCE_GEOJSON_URL = 'data/china.json';
+  var CITY_GEOJSON_URL = 'data/china-cities.json';
   var MODES = ['off', 'province', 'city'];
+  // Which registered map + granularity of highlighting each mode uses.
+  var MODE_MAP = { off: 'china', province: 'china', city: 'china-cities' };
+
+  // regionName -> display name, for tooltips over the city-level map.
+  var REGION_DISPLAY = {};
+  CITIES.forEach(function (c) {
+    REGION_DISPLAY[c.regionName] = c.name;
+  });
 
   var state = {
     mode: loadMode(),
@@ -66,13 +75,17 @@
       chart.resize();
     });
 
-    fetch(CHINA_GEOJSON_URL)
-      .then(function (res) {
+    function loadMap(url) {
+      return fetch(url).then(function (res) {
         if (!res.ok) throw new Error('geojson fetch failed: ' + res.status);
         return res.json();
-      })
-      .then(function (geoJson) {
-        echarts.registerMap('china', geoJson);
+      });
+    }
+
+    Promise.all([loadMap(PROVINCE_GEOJSON_URL), loadMap(CITY_GEOJSON_URL)])
+      .then(function (results) {
+        echarts.registerMap('china', results[0]);
+        echarts.registerMap('china-cities', results[1]);
         els.mapLoading.style.display = 'none';
         renderChart();
       })
@@ -85,26 +98,32 @@
   function renderChart() {
     if (!chart) return;
 
-    var showCities = state.mode !== 'off';
-    var showProvinceHighlight = state.mode === 'province';
+    var showCityMarkers = state.mode === 'city';
 
     var visitedProvinces = {};
     state.visited.forEach(function (c) {
       visitedProvinces[c.province] = true;
     });
 
-    var regions = showProvinceHighlight
-      ? Object.keys(visitedProvinces).map(function (name) {
-          return {
-            name: name,
-            itemStyle: {
-              areaColor: '#ffe1cc',
-            },
-          };
-        })
-      : [];
+    var litRegionNames;
+    if (state.mode === 'province') {
+      litRegionNames = Object.keys(visitedProvinces);
+    } else if (state.mode === 'city') {
+      litRegionNames = state.visited.map(function (c) {
+        return c.regionName;
+      });
+    } else {
+      litRegionNames = [];
+    }
 
-    var scatterData = showCities
+    var regions = litRegionNames.map(function (regionName) {
+      return {
+        name: regionName,
+        itemStyle: { areaColor: '#ffb37a' },
+      };
+    });
+
+    var scatterData = showCityMarkers
       ? state.visited.map(function (c) {
           return {
             name: c.name,
@@ -113,32 +132,30 @@
         })
       : [];
 
+    var provinceLabelData = PROVINCE_LABELS.map(function (p) {
+      return { name: p.name, value: [p.lng, p.lat] };
+    });
+
     var option = {
       tooltip: {
-        show: showCities,
+        show: true,
         formatter: function (params) {
-          return params.name;
+          return REGION_DISPLAY[params.name] || params.name;
         },
       },
       geo: {
-        map: 'china',
+        map: MODE_MAP[state.mode],
         roam: true,
         zoom: 1.05,
-        label: {
-          show: true,
-          fontSize: 10,
-          color: '#9aa0a8',
-        },
+        label: { show: false },
         itemStyle: {
-          areaColor: showCities ? '#ececee' : '#e4e6ea',
-          borderColor: '#c7cad0',
-          borderWidth: 0.8,
+          areaColor: '#e6e8eb',
+          borderColor: '#d3d6da',
+          borderWidth: 0.6,
         },
         emphasis: {
-          itemStyle: {
-            areaColor: '#d8dade',
-          },
-          label: { show: true, color: '#6b7078' },
+          itemStyle: { areaColor: '#d8dade' },
+          label: { show: false },
         },
         select: {
           itemStyle: { areaColor: '#d8dade' },
@@ -146,6 +163,22 @@
         regions: regions,
       },
       series: [
+        {
+          name: '省份标注',
+          type: 'scatter',
+          coordinateSystem: 'geo',
+          data: provinceLabelData,
+          symbolSize: 2,
+          itemStyle: { color: '#c3c7cc', opacity: 1 },
+          silent: true,
+          label: {
+            show: true,
+            formatter: '{b}',
+            fontSize: 10,
+            color: '#9aa0a8',
+          },
+          tooltip: { show: false },
+        },
         {
           name: '到访城市',
           type: 'effectScatter',
