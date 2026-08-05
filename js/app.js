@@ -180,18 +180,13 @@
           tooltip: { show: false },
         },
         {
-          name: '到访城市',
-          type: 'effectScatter',
+          name: '到访城市标注',
+          type: 'scatter',
           coordinateSystem: 'geo',
           data: scatterData,
-          symbolSize: 9,
-          showEffectOn: 'render',
-          rippleEffect: { brushType: 'stroke', scale: 3.5, period: 3 },
-          itemStyle: {
-            color: '#ff6b35',
-            shadowBlur: 12,
-            shadowColor: 'rgba(255, 107, 53, 0.8)',
-          },
+          symbolSize: 3,
+          itemStyle: { color: '#e2571f', opacity: 1 },
+          silent: true,
           label: {
             show: true,
             formatter: '{b}',
@@ -200,7 +195,7 @@
             fontWeight: 600,
             color: '#e2571f',
           },
-          zlevel: 1,
+          tooltip: { show: false },
         },
       ],
     };
