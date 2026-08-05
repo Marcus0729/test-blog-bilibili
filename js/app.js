@@ -3,17 +3,16 @@
 
   var STORAGE_KEY = 'visitedCities';
   var MODE_STORAGE_KEY = 'mapMode';
-  var CHINA_GEOJSON_URL = 'data/china-cities.json';
+  var PROVINCE_GEOJSON_URL = 'data/china.json';
+  var CITY_GEOJSON_URL = 'data/china-cities.json';
   var MODES = ['off', 'province', 'city'];
+  // Which registered map + granularity of highlighting each mode uses.
+  var MODE_MAP = { off: 'china', province: 'china', city: 'china-cities' };
 
   // regionName -> display name, for tooltips over the city-level map.
   var REGION_DISPLAY = {};
-  // province -> list of every regionName belonging to it, for province-wide highlighting.
-  var PROVINCE_REGIONS = {};
   CITIES.forEach(function (c) {
     REGION_DISPLAY[c.regionName] = c.name;
-    if (!PROVINCE_REGIONS[c.province]) PROVINCE_REGIONS[c.province] = [];
-    PROVINCE_REGIONS[c.province].push(c.regionName);
   });
 
   var state = {
@@ -76,13 +75,17 @@
       chart.resize();
     });
 
-    fetch(CHINA_GEOJSON_URL)
-      .then(function (res) {
+    function loadMap(url) {
+      return fetch(url).then(function (res) {
         if (!res.ok) throw new Error('geojson fetch failed: ' + res.status);
         return res.json();
-      })
-      .then(function (geoJson) {
-        echarts.registerMap('china-cities', geoJson);
+      });
+    }
+
+    Promise.all([loadMap(PROVINCE_GEOJSON_URL), loadMap(CITY_GEOJSON_URL)])
+      .then(function (results) {
+        echarts.registerMap('china', results[0]);
+        echarts.registerMap('china-cities', results[1]);
         els.mapLoading.style.display = 'none';
         renderChart();
       })
@@ -95,8 +98,7 @@
   function renderChart() {
     if (!chart) return;
 
-    var showCities = state.mode !== 'off';
-    var showProvinceHighlight = state.mode === 'province';
+    var showCityMarkers = state.mode === 'city';
 
     var visitedProvinces = {};
     state.visited.forEach(function (c) {
@@ -104,12 +106,9 @@
     });
 
     var litRegionNames;
-    if (showProvinceHighlight) {
-      litRegionNames = [];
-      Object.keys(visitedProvinces).forEach(function (province) {
-        litRegionNames = litRegionNames.concat(PROVINCE_REGIONS[province] || []);
-      });
-    } else if (showCities) {
+    if (state.mode === 'province') {
+      litRegionNames = Object.keys(visitedProvinces);
+    } else if (state.mode === 'city') {
       litRegionNames = state.visited.map(function (c) {
         return c.regionName;
       });
@@ -124,7 +123,7 @@
       };
     });
 
-    var scatterData = showCities
+    var scatterData = showCityMarkers
       ? state.visited.map(function (c) {
           return {
             name: c.name,
@@ -145,7 +144,7 @@
         },
       },
       geo: {
-        map: 'china-cities',
+        map: MODE_MAP[state.mode],
         roam: true,
         zoom: 1.05,
         label: { show: false },
