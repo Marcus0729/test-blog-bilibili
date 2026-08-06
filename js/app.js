@@ -1,27 +1,72 @@
 (function () {
   'use strict';
 
-  var STORAGE_KEY = 'visitedCities';
+  var CHINA_STORAGE_KEY = 'visitedCities';
+  var WORLD_STORAGE_KEY = 'visitedCountries';
+  var VIEW_STORAGE_KEY = 'mapView';
   var MODE_STORAGE_KEY = 'mapMode';
   var PROVINCE_GEOJSON_URL = 'data/china.json';
   var CITY_GEOJSON_URL = 'data/china-cities.json';
+  var WORLD_GEOJSON_URL = 'data/world.json';
+  var VIEWS = ['china', 'world'];
   var MODES = ['off', 'province', 'city'];
-  // Which registered map + granularity of highlighting each mode uses.
+  // Which registered map + granularity of highlighting each China mode uses.
   var MODE_MAP = { off: 'china', province: 'china', city: 'china-cities' };
 
-  // regionName -> display name, for tooltips over the city-level map.
+  var DATASETS = {
+    china: {
+      list: CITIES,
+      storageKey: CHINA_STORAGE_KEY,
+      groupField: 'province',
+      searchPlaceholder: '输入城市名，如：杭州',
+      searchTitle: '添加到访城市',
+      visitedTitle: '已点亮城市',
+      emptyText: '还没有添加城市，快去点亮地图吧～',
+      itemCountLabel: '到访城市',
+      groupCountLabel: '覆盖省份',
+      noun: '城市',
+    },
+    world: {
+      list: COUNTRIES,
+      storageKey: WORLD_STORAGE_KEY,
+      groupField: 'continent',
+      searchPlaceholder: '输入国家名，如：日本',
+      searchTitle: '添加到访国家',
+      visitedTitle: '已点亮国家',
+      emptyText: '还没有添加国家，快去点亮世界地图吧～',
+      itemCountLabel: '到访国家',
+      groupCountLabel: '覆盖大洲',
+      noun: '国家',
+    },
+  };
+
+  function itemKey(view, item) {
+    return view === 'world' ? item.regionName : item.name + '|' + item.province;
+  }
+
+  // regionName -> display name / full record, for tooltips + map-click selection.
   var REGION_DISPLAY = {};
-  // regionName -> full city record, for map-click selection in city mode.
   var REGION_TO_CITY = {};
   CITIES.forEach(function (c) {
     REGION_DISPLAY[c.regionName] = c.name;
     REGION_TO_CITY[c.regionName] = c;
   });
 
+  var COUNTRY_DISPLAY = {};
+  var REGION_TO_COUNTRY = {};
+  COUNTRIES.forEach(function (c) {
+    COUNTRY_DISPLAY[c.regionName] = c.name;
+    REGION_TO_COUNTRY[c.regionName] = c;
+  });
+
   var state = {
+    view: loadView(),
     mode: loadMode(),
-    visited: loadVisited(),
-    selectedCity: null,
+    visitedByView: {
+      china: loadVisited('china'),
+      world: loadVisited('world'),
+    },
+    selectedItem: null,
     activeSuggestIndex: -1,
     currentSuggestions: [],
   };
@@ -31,19 +76,33 @@
   var els = {
     mapContainer: document.getElementById('mapContainer'),
     mapLoading: document.getElementById('mapLoading'),
+    viewButtons: document.querySelectorAll('.view-btn'),
+    chinaModeSwitch: document.getElementById('chinaModeSwitch'),
     modeButtons: document.querySelectorAll('.mode-btn'),
+    searchPanelTitle: document.getElementById('searchPanelTitle'),
+    visitedPanelTitle: document.getElementById('visitedPanelTitle'),
     searchInput: document.getElementById('citySearchInput'),
     suggestList: document.getElementById('suggestList'),
     confirmBtn: document.getElementById('confirmAddBtn'),
     searchHint: document.getElementById('searchHint'),
-    cityCount: document.getElementById('cityCount'),
-    provinceCount: document.getElementById('provinceCount'),
+    itemCount: document.getElementById('itemCount'),
+    itemCountLabel: document.getElementById('itemCountLabel'),
+    groupCount: document.getElementById('groupCount'),
+    groupCountLabel: document.getElementById('groupCountLabel'),
     visitedList: document.getElementById('visitedList'),
   };
 
-  function loadVisited() {
+  function dataset() {
+    return DATASETS[state.view];
+  }
+
+  function visitedList() {
+    return state.visitedByView[state.view];
+  }
+
+  function loadVisited(view) {
     try {
-      var raw = localStorage.getItem(STORAGE_KEY);
+      var raw = localStorage.getItem(DATASETS[view].storageKey);
       return raw ? JSON.parse(raw) : [];
     } catch (e) {
       return [];
@@ -51,7 +110,12 @@
   }
 
   function saveVisited() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.visited));
+    localStorage.setItem(dataset().storageKey, JSON.stringify(visitedList()));
+  }
+
+  function loadView() {
+    var saved = localStorage.getItem(VIEW_STORAGE_KEY);
+    return VIEWS.indexOf(saved) !== -1 ? saved : 'china';
   }
 
   function loadMode() {
@@ -59,14 +123,10 @@
     return MODES.indexOf(saved) !== -1 ? saved : 'off';
   }
 
-  function cityKey(city) {
-    return city.name + '|' + city.province;
-  }
-
-  function isVisited(city) {
-    var key = cityKey(city);
-    return state.visited.some(function (c) {
-      return cityKey(c) === key;
+  function isVisited(item) {
+    var key = itemKey(state.view, item);
+    return visitedList().some(function (v) {
+      return itemKey(state.view, v) === key;
     });
   }
 
@@ -79,10 +139,15 @@
     });
 
     chart.on('click', function (params) {
-      if (state.mode !== 'city' || params.componentType !== 'geo') return;
-      var city = REGION_TO_CITY[params.name];
-      if (!city) return;
-      selectCity(city);
+      if (params.componentType !== 'geo') return;
+      if (state.view === 'china') {
+        if (state.mode !== 'city') return;
+        var city = REGION_TO_CITY[params.name];
+        if (city) selectItem(city);
+      } else {
+        var country = REGION_TO_COUNTRY[params.name];
+        if (country) selectItem(country);
+      }
     });
 
     function loadMap(url) {
@@ -92,10 +157,15 @@
       });
     }
 
-    Promise.all([loadMap(PROVINCE_GEOJSON_URL), loadMap(CITY_GEOJSON_URL)])
+    Promise.all([
+      loadMap(PROVINCE_GEOJSON_URL),
+      loadMap(CITY_GEOJSON_URL),
+      loadMap(WORLD_GEOJSON_URL),
+    ])
       .then(function (results) {
         echarts.registerMap('china', results[0]);
         echarts.registerMap('china-cities', results[1]);
+        echarts.registerMap('world', results[2]);
         els.mapLoading.style.display = 'none';
         renderChart();
       })
@@ -105,29 +175,38 @@
       });
   }
 
-  // Bounding box + zoom heuristic so small prefecture-level cities are
-  // actually visible instead of being a speck on the full-country view.
-  function computeCityViewport(cities) {
-    if (!cities.length) return null;
+  // Bounding-box + zoom heuristics so small highlighted regions are actually
+  // visible instead of being a speck on the full map view.
+  function computeViewport(items, opts) {
+    if (!items.length) return null;
     var minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
-    cities.forEach(function (c) {
-      if (c.lng < minLng) minLng = c.lng;
-      if (c.lng > maxLng) maxLng = c.lng;
-      if (c.lat < minLat) minLat = c.lat;
-      if (c.lat > maxLat) maxLat = c.lat;
+    items.forEach(function (item) {
+      var b = opts.bbox ? opts.bbox(item) : [item.lng, item.lat, item.lng, item.lat];
+      if (b[0] < minLng) minLng = b[0];
+      if (b[2] > maxLng) maxLng = b[2];
+      if (b[1] < minLat) minLat = b[1];
+      if (b[3] > maxLat) maxLat = b[3];
     });
-    var lngSpan = Math.max(maxLng - minLng, 6) + 3;
-    var latSpan = Math.max(maxLat - minLat, 6) + 3;
-    var zoom = Math.min(62 / lngSpan, 51 / latSpan) * 1.05;
-    zoom = Math.max(1.05, Math.min(zoom, 12));
+    var lngSpan = Math.max(maxLng - minLng, opts.minSpan) + opts.padding;
+    var latSpan = Math.max(maxLat - minLat, opts.minSpan) + opts.padding;
+    var zoom = Math.min(opts.fullLng / lngSpan, opts.fullLat / latSpan) * 1.05;
+    zoom = Math.max(1.05, Math.min(zoom, opts.maxZoom));
     return { center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2], zoom: zoom };
   }
 
   function renderChart() {
     if (!chart) return;
+    if (state.view === 'china') {
+      renderChinaChart();
+    } else {
+      renderWorldChart();
+    }
+  }
 
+  function renderChinaChart() {
+    var visited = state.visitedByView.china;
     var visitedProvinces = {};
-    state.visited.forEach(function (c) {
+    visited.forEach(function (c) {
       visitedProvinces[c.province] = true;
     });
 
@@ -135,7 +214,7 @@
     if (state.mode === 'province') {
       litRegionNames = Object.keys(visitedProvinces);
     } else if (state.mode === 'city') {
-      litRegionNames = state.visited.map(function (c) {
+      litRegionNames = visited.map(function (c) {
         return c.regionName;
       });
     } else {
@@ -166,7 +245,15 @@
     });
 
     var viewport =
-      state.mode === 'city' ? computeCityViewport(state.visited) : null;
+      state.mode === 'city'
+        ? computeViewport(visited, {
+            minSpan: 6,
+            padding: 3,
+            fullLng: 62,
+            fullLat: 51,
+            maxZoom: 12,
+          })
+        : null;
 
     var option = {
       tooltip: {
@@ -218,7 +305,114 @@
     chart.setOption(option, { notMerge: true });
   }
 
-  // ---------- Mode switch ----------
+  function renderWorldChart() {
+    var visited = state.visitedByView.world;
+
+    var regions = visited.map(function (country) {
+      return {
+        name: country.regionName,
+        itemStyle: {
+          areaColor: '#ffb37a',
+          borderColor: '#e2571f',
+          borderWidth: 1.2,
+        },
+        label: {
+          show: true,
+          formatter: country.name,
+          fontSize: 12,
+          fontWeight: 600,
+          color: '#e2571f',
+        },
+      };
+    });
+
+    var viewport = computeViewport(visited, {
+      bbox: function (c) {
+        return c.bbox;
+      },
+      minSpan: 4,
+      padding: 2,
+      fullLng: 360,
+      fullLat: 139,
+      maxZoom: 40,
+    });
+
+    var option = {
+      tooltip: {
+        show: true,
+        formatter: function (params) {
+          return COUNTRY_DISPLAY[params.name] || params.name;
+        },
+      },
+      geo: {
+        map: 'world',
+        roam: true,
+        zoom: viewport ? viewport.zoom : 1.05,
+        center: viewport ? viewport.center : null,
+        label: { show: false },
+        itemStyle: {
+          areaColor: '#e6e8eb',
+          borderColor: '#d3d6da',
+          borderWidth: 0.6,
+        },
+        emphasis: {
+          itemStyle: { areaColor: '#d8dade' },
+          label: { show: false },
+        },
+        select: {
+          itemStyle: { areaColor: '#d8dade' },
+        },
+        regions: regions,
+      },
+      series: [],
+    };
+
+    chart.setOption(option, { notMerge: true });
+  }
+
+  // ---------- View switch (China / World) ----------
+
+  function setView(view) {
+    if (VIEWS.indexOf(view) === -1 || view === state.view) return;
+    state.view = view;
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    updateViewButtons();
+    applyDatasetLabels();
+    clearSelection();
+    els.searchInput.value = '';
+    els.searchHint.textContent = '';
+    els.suggestList.classList.add('hidden');
+    renderVisitedList();
+    renderStats();
+    renderChart();
+  }
+
+  function updateViewButtons() {
+    els.viewButtons.forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.view === state.view);
+    });
+    els.chinaModeSwitch.style.display = state.view === 'china' ? 'flex' : 'none';
+  }
+
+  function applyDatasetLabels() {
+    var d = dataset();
+    els.searchPanelTitle.textContent = d.searchTitle;
+    els.visitedPanelTitle.textContent = d.visitedTitle;
+    els.searchInput.placeholder = d.searchPlaceholder;
+    els.itemCountLabel.textContent = d.itemCountLabel;
+    els.groupCountLabel.textContent = d.groupCountLabel;
+  }
+
+  els.viewButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setView(btn.dataset.view);
+    });
+  });
+
+  updateViewButtons();
+  applyDatasetLabels();
+
+  // ---------- China mode switch ----------
 
   function setMode(mode) {
     if (MODES.indexOf(mode) === -1 || mode === state.mode) return;
@@ -244,12 +438,18 @@
 
   // ---------- Search & suggestions ----------
 
-  function searchCities(query) {
+  function searchItems(query) {
     query = query.trim();
     if (!query) return [];
-    return CITIES.filter(function (c) {
-      return c.name.indexOf(query) !== -1 || c.province.indexOf(query) !== -1;
-    }).slice(0, 8);
+    var groupField = dataset().groupField;
+    return dataset()
+      .list.filter(function (item) {
+        return (
+          item.name.indexOf(query) !== -1 ||
+          item[groupField].indexOf(query) !== -1
+        );
+      })
+      .slice(0, 8);
   }
 
   function renderSuggestions(list) {
@@ -262,48 +462,50 @@
       return;
     }
 
-    list.forEach(function (city, idx) {
-      var item = document.createElement('div');
-      item.className = 'suggest-item' + (idx === 0 ? ' active' : '');
-      if (isVisited(city)) item.classList.add('visited-mark');
+    var groupField = dataset().groupField;
+
+    list.forEach(function (item, idx) {
+      var el = document.createElement('div');
+      el.className = 'suggest-item' + (idx === 0 ? ' active' : '');
+      if (isVisited(item)) el.classList.add('visited-mark');
 
       var nameSpan = document.createElement('span');
-      nameSpan.textContent = city.name;
-      var provinceSpan = document.createElement('span');
-      provinceSpan.className = 'province';
-      provinceSpan.textContent = city.province;
+      nameSpan.textContent = item.name;
+      var groupSpan = document.createElement('span');
+      groupSpan.className = 'province';
+      groupSpan.textContent = item[groupField];
 
-      item.appendChild(nameSpan);
-      item.appendChild(provinceSpan);
-      item.addEventListener('click', function () {
-        selectCity(city);
+      el.appendChild(nameSpan);
+      el.appendChild(groupSpan);
+      el.addEventListener('click', function () {
+        selectItem(item);
       });
 
-      els.suggestList.appendChild(item);
+      els.suggestList.appendChild(el);
     });
 
     els.suggestList.classList.remove('hidden');
   }
 
-  function selectCity(city) {
-    state.selectedCity = city;
-    els.searchInput.value = city.name;
+  function selectItem(item) {
+    state.selectedItem = item;
+    els.searchInput.value = item.name;
     els.suggestList.classList.add('hidden');
     els.confirmBtn.disabled = false;
-    els.searchHint.textContent = isVisited(city)
-      ? city.name + ' 已在到访列表中'
-      : '已选择「' + city.name + '」，点击确认添加';
+    els.searchHint.textContent = isVisited(item)
+      ? item.name + ' 已在到访列表中'
+      : '已选择「' + item.name + '」，点击确认添加';
   }
 
   function clearSelection() {
-    state.selectedCity = null;
+    state.selectedItem = null;
     els.confirmBtn.disabled = true;
   }
 
   els.searchInput.addEventListener('input', function () {
     clearSelection();
     var query = els.searchInput.value;
-    var results = searchCities(query);
+    var results = searchItems(query);
     renderSuggestions(results);
     els.searchHint.textContent = '';
   });
@@ -324,9 +526,9 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (state.activeSuggestIndex >= 0 && list[state.activeSuggestIndex]) {
-        selectCity(list[state.activeSuggestIndex]);
-      } else if (state.selectedCity) {
-        addVisitedCity(state.selectedCity);
+        selectItem(list[state.activeSuggestIndex]);
+      } else if (state.selectedItem) {
+        addVisitedItem(state.selectedItem);
       }
     } else if (e.key === 'Escape') {
       els.suggestList.classList.add('hidden');
@@ -347,34 +549,34 @@
   });
 
   els.confirmBtn.addEventListener('click', function () {
-    if (state.selectedCity) {
-      addVisitedCity(state.selectedCity);
+    if (state.selectedItem) {
+      addVisitedItem(state.selectedItem);
     }
   });
 
   // ---------- Visited management ----------
 
-  function addVisitedCity(city) {
-    if (isVisited(city)) {
-      els.searchHint.textContent = city.name + ' 已在到访列表中';
+  function addVisitedItem(item) {
+    if (isVisited(item)) {
+      els.searchHint.textContent = item.name + ' 已在到访列表中';
       return;
     }
-    state.visited.push(city);
+    visitedList().push(item);
     saveVisited();
     renderVisitedList();
     renderStats();
     renderChart();
 
-    els.searchHint.textContent = '已添加「' + city.name + '」';
+    els.searchHint.textContent = '已添加「' + item.name + '」';
     els.searchInput.value = '';
     clearSelection();
     els.suggestList.classList.add('hidden');
   }
 
-  function removeVisitedCity(city) {
-    var key = cityKey(city);
-    state.visited = state.visited.filter(function (c) {
-      return cityKey(c) !== key;
+  function removeVisitedItem(item) {
+    var key = itemKey(state.view, item);
+    state.visitedByView[state.view] = visitedList().filter(function (v) {
+      return itemKey(state.view, v) !== key;
     });
     saveVisited();
     renderVisitedList();
@@ -384,40 +586,42 @@
 
   function renderVisitedList() {
     els.visitedList.innerHTML = '';
+    var d = dataset();
+    var visited = visitedList();
 
-    if (!state.visited.length) {
+    if (!visited.length) {
       var empty = document.createElement('li');
       empty.className = 'empty-tip';
-      empty.textContent = '还没有添加城市，快去点亮地图吧～';
+      empty.textContent = d.emptyText;
       els.visitedList.appendChild(empty);
       return;
     }
 
-    state.visited
+    visited
       .slice()
       .sort(function (a, b) {
-        return a.province.localeCompare(b.province, 'zh');
+        return a[d.groupField].localeCompare(b[d.groupField], 'zh');
       })
-      .forEach(function (city) {
+      .forEach(function (item) {
         var li = document.createElement('li');
 
         var left = document.createElement('span');
         var nameSpan = document.createElement('span');
         nameSpan.className = 'city-name';
-        nameSpan.textContent = city.name;
-        var provinceSpan = document.createElement('span');
-        provinceSpan.className = 'city-province';
-        provinceSpan.textContent = city.province;
+        nameSpan.textContent = item.name;
+        var groupSpan = document.createElement('span');
+        groupSpan.className = 'city-province';
+        groupSpan.textContent = item[d.groupField];
         left.appendChild(nameSpan);
-        left.appendChild(provinceSpan);
+        left.appendChild(groupSpan);
 
         var removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.type = 'button';
-        removeBtn.setAttribute('aria-label', '移除 ' + city.name);
+        removeBtn.setAttribute('aria-label', '移除 ' + item.name);
         removeBtn.textContent = '×';
         removeBtn.addEventListener('click', function () {
-          removeVisitedCity(city);
+          removeVisitedItem(item);
         });
 
         li.appendChild(left);
@@ -427,12 +631,14 @@
   }
 
   function renderStats() {
-    els.cityCount.textContent = state.visited.length;
-    var provinces = {};
-    state.visited.forEach(function (c) {
-      provinces[c.province] = true;
+    var d = dataset();
+    var visited = visitedList();
+    els.itemCount.textContent = visited.length;
+    var groups = {};
+    visited.forEach(function (item) {
+      groups[item[d.groupField]] = true;
     });
-    els.provinceCount.textContent = Object.keys(provinces).length;
+    els.groupCount.textContent = Object.keys(groups).length;
   }
 
   // ---------- Init ----------
