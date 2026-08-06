@@ -52,7 +52,12 @@
     REGION_TO_CITY[c.regionName] = c;
   });
 
-  var COUNTRY_DISPLAY = {};
+  var COUNTRY_DISPLAY = {
+    // 世界地图数据里台湾、香港是独立于中国大陆的边界要素，单独给出中文名，
+    // 避免鼠标悬停时显示原始的 ISO 代码。
+    TWN: '中国台湾',
+    HKG: '中国香港',
+  };
   var REGION_TO_COUNTRY = {};
   COUNTRIES.forEach(function (c) {
     COUNTRY_DISPLAY[c.regionName] = c.name;
@@ -256,18 +261,18 @@
         : null;
 
     var option = {
-      tooltip: {
-        show: true,
-        formatter: function (params) {
-          return REGION_DISPLAY[params.name] || params.name;
-        },
-      },
+      tooltip: { show: true },
       geo: {
         map: MODE_MAP[state.mode],
         roam: true,
         zoom: viewport ? viewport.zoom : 1.05,
         center: viewport ? viewport.center : null,
         label: { show: false },
+        tooltip: {
+          formatter: function (params) {
+            return REGION_DISPLAY[params.name] || params.name;
+          },
+        },
         itemStyle: {
           areaColor: '#e6e8eb',
           borderColor: '#d3d6da',
@@ -305,11 +310,16 @@
     chart.setOption(option, { notMerge: true });
   }
 
+  // 台湾、香港是中国领土不可分割的一部分：世界地图数据里它们是独立的
+  // 边界要素，点亮中国时一并点亮，避免地图上看起来像是没被点亮的样子。
+  var CHINA_AUX_REGIONS = ['TWN', 'HKG'];
+
   function renderWorldChart() {
     var visited = state.visitedByView.world;
 
-    var regions = visited.map(function (country) {
-      return {
+    var regions = [];
+    visited.forEach(function (country) {
+      regions.push({
         name: country.regionName,
         itemStyle: {
           areaColor: '#ffb37a',
@@ -323,7 +333,19 @@
           fontWeight: 600,
           color: '#e2571f',
         },
-      };
+      });
+      if (country.regionName === 'CHN') {
+        CHINA_AUX_REGIONS.forEach(function (auxName) {
+          regions.push({
+            name: auxName,
+            itemStyle: {
+              areaColor: '#ffb37a',
+              borderColor: '#e2571f',
+              borderWidth: 1.2,
+            },
+          });
+        });
+      }
     });
 
     var viewport = computeViewport(visited, {
@@ -338,18 +360,18 @@
     });
 
     var option = {
-      tooltip: {
-        show: true,
-        formatter: function (params) {
-          return COUNTRY_DISPLAY[params.name] || params.name;
-        },
-      },
+      tooltip: { show: true },
       geo: {
         map: 'world',
         roam: true,
         zoom: viewport ? viewport.zoom : 1.05,
         center: viewport ? viewport.center : null,
         label: { show: false },
+        tooltip: {
+          formatter: function (params) {
+            return COUNTRY_DISPLAY[params.name] || params.name;
+          },
+        },
         itemStyle: {
           areaColor: '#e6e8eb',
           borderColor: '#d3d6da',
