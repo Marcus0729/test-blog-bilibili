@@ -5,6 +5,18 @@
   var WORLD_STORAGE_KEY = 'visitedCountries';
   var VIEW_STORAGE_KEY = 'mapView';
   var MODE_STORAGE_KEY = 'mapMode';
+  var MEMBER_STORAGE_KEY = 'travelMembers';
+  var ACTIVE_MEMBER_STORAGE_KEY = 'activeMemberId';
+  var MEMBER_COLORS = [
+    '#ff6b35',
+    '#3b82f6',
+    '#22a06b',
+    '#a855f7',
+    '#e0367f',
+    '#14b8a6',
+    '#eab308',
+    '#ef4444',
+  ];
   var PROVINCE_GEOJSON_URL = 'data/china.json';
   var CITY_GEOJSON_URL = 'data/china-cities.json';
   var WORLD_GEOJSON_URL = 'data/world.json';
@@ -67,15 +79,21 @@
   var state = {
     view: loadView(),
     mode: loadMode(),
-    visitedByView: {
-      china: loadVisited('china'),
-      world: loadVisited('world'),
-    },
+    members: loadMembers(),
+    activeMemberId: null,
+    visitedByMember: {},
     selectedItem: null,
     activeSuggestIndex: -1,
     currentSuggestions: [],
     auth: { user: null },
   };
+  state.activeMemberId = loadActiveMemberId(state.members);
+  state.members.forEach(function (m) {
+    state.visitedByMember[m.id] = {
+      china: loadVisited(m.id, 'china'),
+      world: loadVisited(m.id, 'world'),
+    };
+  });
 
   var chart = null;
 
@@ -96,6 +114,12 @@
     groupCount: document.getElementById('groupCount'),
     groupCountLabel: document.getElementById('groupCountLabel'),
     visitedList: document.getElementById('visitedList'),
+    memberSwitch: document.getElementById('memberSwitch'),
+    memberModalOverlay: document.getElementById('memberModalOverlay'),
+    memberModalCloseBtn: document.getElementById('memberModalCloseBtn'),
+    memberManageList: document.getElementById('memberManageList'),
+    newMemberNameInput: document.getElementById('newMemberNameInput'),
+    newMemberAddBtn: document.getElementById('newMemberAddBtn'),
     authOpenBtn: document.getElementById('authOpenBtn'),
     authStatus: document.getElementById('authStatus'),
     authEmail: document.getElementById('authEmail'),
@@ -114,12 +138,16 @@
   }
 
   function visitedList() {
-    return state.visitedByView[state.view];
+    return state.visitedByMember[state.activeMemberId][state.view];
   }
 
-  function loadVisited(view) {
+  function memberStorageKey(baseKey, memberId) {
+    return baseKey + '::' + memberId;
+  }
+
+  function loadVisited(memberId, view) {
     try {
-      var raw = localStorage.getItem(DATASETS[view].storageKey);
+      var raw = localStorage.getItem(memberStorageKey(DATASETS[view].storageKey, memberId));
       return raw ? JSON.parse(raw) : [];
     } catch (e) {
       return [];
@@ -127,7 +155,277 @@
   }
 
   function saveVisited() {
-    localStorage.setItem(dataset().storageKey, JSON.stringify(visitedList()));
+    localStorage.setItem(
+      memberStorageKey(dataset().storageKey, state.activeMemberId),
+      JSON.stringify(visitedList())
+    );
+  }
+
+  // ---------- Members ----------
+
+  function nextMemberColor(members) {
+    var used = {};
+    members.forEach(function (m) {
+      used[m.color] = true;
+    });
+    for (var i = 0; i < MEMBER_COLORS.length; i++) {
+      if (!used[MEMBER_COLORS[i]]) return MEMBER_COLORS[i];
+    }
+    return MEMBER_COLORS[members.length % MEMBER_COLORS.length];
+  }
+
+  // First run / upgrade from the single-user version: create a default
+  // member and migrate any pre-existing flat visited-data into it so
+  // nobody's history disappears when this feature ships.
+  function loadMembers() {
+    try {
+      var raw = localStorage.getItem(MEMBER_STORAGE_KEY);
+      if (raw) {
+        var members = JSON.parse(raw);
+        if (members && members.length) return members;
+      }
+    } catch (e) {}
+
+    var defaultMember = { id: 'm' + Date.now(), name: '我', color: MEMBER_COLORS[0] };
+    try {
+      var legacyCities = localStorage.getItem(CHINA_STORAGE_KEY);
+      var legacyCountries = localStorage.getItem(WORLD_STORAGE_KEY);
+      if (legacyCities) {
+        localStorage.setItem(memberStorageKey(CHINA_STORAGE_KEY, defaultMember.id), legacyCities);
+      }
+      if (legacyCountries) {
+        localStorage.setItem(memberStorageKey(WORLD_STORAGE_KEY, defaultMember.id), legacyCountries);
+      }
+    } catch (e) {}
+
+    localStorage.setItem(MEMBER_STORAGE_KEY, JSON.stringify([defaultMember]));
+    return [defaultMember];
+  }
+
+  function loadActiveMemberId(members) {
+    var saved = localStorage.getItem(ACTIVE_MEMBER_STORAGE_KEY);
+    if (
+      saved &&
+      members.some(function (m) {
+        return m.id === saved;
+      })
+    ) {
+      return saved;
+    }
+    return members[0].id;
+  }
+
+  function persistMembers() {
+    localStorage.setItem(MEMBER_STORAGE_KEY, JSON.stringify(state.members));
+    localStorage.setItem(ACTIVE_MEMBER_STORAGE_KEY, state.activeMemberId);
+  }
+
+  function activeMember() {
+    var found = null;
+    state.members.forEach(function (m) {
+      if (m.id === state.activeMemberId) found = m;
+    });
+    return found || state.members[0];
+  }
+
+  function setActiveMember(memberId) {
+    if (memberId === state.activeMemberId) return;
+    if (
+      !state.members.some(function (m) {
+        return m.id === memberId;
+      })
+    ) {
+      return;
+    }
+    state.activeMemberId = memberId;
+    persistMembers();
+    updateMemberSwitchUI();
+    clearSelection();
+    els.searchInput.value = '';
+    els.searchHint.textContent = '';
+    els.suggestList.classList.add('hidden');
+    renderVisitedList();
+    renderStats();
+    renderChart();
+  }
+
+  function addMember(name) {
+    name = (name || '').trim();
+    if (!name) return;
+    var member = { id: 'm' + Date.now(), name: name, color: nextMemberColor(state.members) };
+    state.members.push(member);
+    state.visitedByMember[member.id] = { china: [], world: [] };
+    state.activeMemberId = member.id;
+    persistMembers();
+    updateMemberSwitchUI();
+    renderMemberManageList();
+    clearSelection();
+    renderVisitedList();
+    renderStats();
+    renderChart();
+    if (isLoggedIn()) pushLocalToCloud();
+  }
+
+  function renameMember(memberId, name) {
+    name = (name || '').trim();
+    if (!name) return;
+    var member = null;
+    state.members.forEach(function (m) {
+      if (m.id === memberId) member = m;
+    });
+    if (!member || member.name === name) return;
+    member.name = name;
+    persistMembers();
+    updateMemberSwitchUI();
+    if (isLoggedIn()) pushLocalToCloud();
+  }
+
+  function cycleMemberColor(memberId) {
+    var member = null;
+    state.members.forEach(function (m) {
+      if (m.id === memberId) member = m;
+    });
+    if (!member) return;
+    var idx = MEMBER_COLORS.indexOf(member.color);
+    member.color = MEMBER_COLORS[(idx + 1) % MEMBER_COLORS.length];
+    persistMembers();
+    updateMemberSwitchUI();
+    renderMemberManageList();
+    if (member.id === state.activeMemberId) renderChart();
+    if (isLoggedIn()) pushLocalToCloud();
+  }
+
+  function deleteMember(memberId) {
+    if (state.members.length <= 1) return;
+    var member = null;
+    state.members.forEach(function (m) {
+      if (m.id === memberId) member = m;
+    });
+    if (!member) return;
+    var ok = window.confirm('确定要删除成员「' + member.name + '」吗？该成员的到访记录也会被删除。');
+    if (!ok) return;
+
+    state.members = state.members.filter(function (m) {
+      return m.id !== memberId;
+    });
+    delete state.visitedByMember[memberId];
+    localStorage.removeItem(memberStorageKey(CHINA_STORAGE_KEY, memberId));
+    localStorage.removeItem(memberStorageKey(WORLD_STORAGE_KEY, memberId));
+    if (state.activeMemberId === memberId) {
+      state.activeMemberId = state.members[0].id;
+    }
+    persistMembers();
+    updateMemberSwitchUI();
+    renderMemberManageList();
+    renderVisitedList();
+    renderStats();
+    renderChart();
+    if (isLoggedIn()) pushLocalToCloud();
+  }
+
+  function updateMemberSwitchUI() {
+    els.memberSwitch.innerHTML = '';
+    state.members.forEach(function (m) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'member-pill' + (m.id === state.activeMemberId ? ' active' : '');
+
+      var dot = document.createElement('span');
+      dot.className = 'member-color-dot';
+      dot.style.background = m.color;
+
+      var label = document.createElement('span');
+      label.textContent = m.name;
+
+      btn.appendChild(dot);
+      btn.appendChild(label);
+      btn.addEventListener('click', function () {
+        setActiveMember(m.id);
+      });
+      els.memberSwitch.appendChild(btn);
+    });
+
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'member-add-btn';
+    addBtn.title = '管理成员';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', openMemberModal);
+    els.memberSwitch.appendChild(addBtn);
+  }
+
+  function renderMemberManageList() {
+    els.memberManageList.innerHTML = '';
+    state.members.forEach(function (m) {
+      var li = document.createElement('li');
+
+      var dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'member-color-dot';
+      dot.style.background = m.color;
+      dot.title = '点击更换颜色';
+      dot.addEventListener('click', function () {
+        cycleMemberColor(m.id);
+      });
+
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'member-name-input';
+      input.value = m.name;
+      input.addEventListener('change', function () {
+        renameMember(m.id, input.value);
+      });
+
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'member-delete-btn';
+      delBtn.textContent = '×';
+      delBtn.disabled = state.members.length <= 1;
+      delBtn.setAttribute('aria-label', '删除 ' + m.name);
+      delBtn.addEventListener('click', function () {
+        deleteMember(m.id);
+      });
+
+      li.appendChild(dot);
+      li.appendChild(input);
+      li.appendChild(delBtn);
+      els.memberManageList.appendChild(li);
+    });
+  }
+
+  function openMemberModal() {
+    renderMemberManageList();
+    els.newMemberNameInput.value = '';
+    els.memberModalOverlay.classList.remove('hidden');
+  }
+
+  function closeMemberModal() {
+    els.memberModalOverlay.classList.add('hidden');
+  }
+
+  els.memberModalCloseBtn.addEventListener('click', closeMemberModal);
+  els.memberModalOverlay.addEventListener('click', function (e) {
+    if (e.target === els.memberModalOverlay) closeMemberModal();
+  });
+  els.newMemberAddBtn.addEventListener('click', function () {
+    addMember(els.newMemberNameInput.value);
+    els.newMemberNameInput.value = '';
+  });
+  els.newMemberNameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') els.newMemberAddBtn.click();
+  });
+
+  // Lighten (positive percent) or darken (negative percent) a hex color,
+  // used to derive a highlight fill/border pair from a member's base color.
+  function shadeColor(hex, percent) {
+    var num = parseInt(hex.slice(1), 16);
+    var r = (num >> 16) + Math.round(255 * percent);
+    var g = ((num >> 8) & 0xff) + Math.round(255 * percent);
+    var b = (num & 0xff) + Math.round(255 * percent);
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
   }
 
   function loadView() {
@@ -221,7 +519,10 @@
   }
 
   function renderChinaChart() {
-    var visited = state.visitedByView.china;
+    var member = activeMember();
+    var fillColor = shadeColor(member.color, 0.45);
+    var borderColor = shadeColor(member.color, -0.1);
+    var visited = state.visitedByMember[state.activeMemberId].china;
     var visitedProvinces = {};
     visited.forEach(function (c) {
       visitedProvinces[c.province] = true;
@@ -241,17 +542,17 @@
     var regions = litRegionNames.map(function (regionName) {
       var region = {
         name: regionName,
-        itemStyle: { areaColor: '#ffb37a' },
+        itemStyle: { areaColor: fillColor },
       };
       if (state.mode === 'city') {
-        region.itemStyle.borderColor = '#e2571f';
+        region.itemStyle.borderColor = borderColor;
         region.itemStyle.borderWidth = 1.5;
         region.label = {
           show: true,
           formatter: REGION_DISPLAY[regionName] || regionName,
           fontSize: 12,
           fontWeight: 600,
-          color: '#e2571f',
+          color: borderColor,
         };
       }
       return region;
@@ -327,15 +628,18 @@
   var CHINA_AUX_REGIONS = ['TWN', 'HKG'];
 
   function renderWorldChart() {
-    var visited = state.visitedByView.world;
+    var member = activeMember();
+    var fillColor = shadeColor(member.color, 0.45);
+    var borderColor = shadeColor(member.color, -0.1);
+    var visited = state.visitedByMember[state.activeMemberId].world;
 
     var regions = [];
     visited.forEach(function (country) {
       regions.push({
         name: country.regionName,
         itemStyle: {
-          areaColor: '#ffb37a',
-          borderColor: '#e2571f',
+          areaColor: fillColor,
+          borderColor: borderColor,
           borderWidth: 1.2,
         },
         label: {
@@ -343,7 +647,7 @@
           formatter: country.name,
           fontSize: 12,
           fontWeight: 600,
-          color: '#e2571f',
+          color: borderColor,
         },
       });
       if (country.regionName === 'CHN') {
@@ -351,8 +655,8 @@
           regions.push({
             name: auxName,
             itemStyle: {
-              areaColor: '#ffb37a',
-              borderColor: '#e2571f',
+              areaColor: fillColor,
+              borderColor: borderColor,
               borderWidth: 1.2,
             },
           });
@@ -610,7 +914,7 @@
 
   function removeVisitedItem(item) {
     var key = itemKey(state.view, item);
-    state.visitedByView[state.view] = visitedList().filter(function (v) {
+    state.visitedByMember[state.activeMemberId][state.view] = visitedList().filter(function (v) {
       return itemKey(state.view, v) !== key;
     });
     saveVisited();
@@ -715,7 +1019,7 @@
     if (!supabaseClient || !isLoggedIn()) return Promise.resolve(null);
     return supabaseClient
       .from(CLOUD_TABLE)
-      .select('visited_cities, visited_countries')
+      .select('members, visited_cities, visited_countries')
       .eq('user_id', state.auth.user.id)
       .maybeSingle()
       .then(function (res) {
@@ -727,14 +1031,25 @@
       });
   }
 
+  function serializeMembers() {
+    return state.members.map(function (m) {
+      return {
+        id: m.id,
+        name: m.name,
+        color: m.color,
+        visitedCities: state.visitedByMember[m.id].china,
+        visitedCountries: state.visitedByMember[m.id].world,
+      };
+    });
+  }
+
   function pushLocalToCloud() {
     if (!supabaseClient || !isLoggedIn()) return Promise.resolve();
     return supabaseClient
       .from(CLOUD_TABLE)
       .upsert({
         user_id: state.auth.user.id,
-        visited_cities: state.visitedByView.china,
-        visited_countries: state.visitedByView.world,
+        members: serializeMembers(),
         updated_at: new Date().toISOString(),
       })
       .then(function (res) {
@@ -742,11 +1057,42 @@
       });
   }
 
+  // Cloud rows written before multi-member support only have the old flat
+  // visited_cities/visited_countries columns; wrap those into a single
+  // default member so existing accounts don't lose their history.
+  function membersFromCloudRow(row) {
+    if (row && row.members && row.members.length) return row.members;
+    if (row && (row.visited_cities || row.visited_countries)) {
+      return [
+        {
+          id: 'm' + Date.now(),
+          name: '我',
+          color: MEMBER_COLORS[0],
+          visitedCities: row.visited_cities || [],
+          visitedCountries: row.visited_countries || [],
+        },
+      ];
+    }
+    return [{ id: 'm' + Date.now(), name: '我', color: MEMBER_COLORS[0], visitedCities: [], visitedCountries: [] }];
+  }
+
   function applyCloudRow(row) {
-    state.visitedByView.china = (row && row.visited_cities) || [];
-    state.visitedByView.world = (row && row.visited_countries) || [];
-    localStorage.setItem(CHINA_STORAGE_KEY, JSON.stringify(state.visitedByView.china));
-    localStorage.setItem(WORLD_STORAGE_KEY, JSON.stringify(state.visitedByView.world));
+    var members = membersFromCloudRow(row);
+    state.members = members.map(function (m) {
+      return { id: m.id, name: m.name, color: m.color };
+    });
+    state.visitedByMember = {};
+    members.forEach(function (m) {
+      state.visitedByMember[m.id] = {
+        china: m.visitedCities || [],
+        world: m.visitedCountries || [],
+      };
+      localStorage.setItem(memberStorageKey(CHINA_STORAGE_KEY, m.id), JSON.stringify(m.visitedCities || []));
+      localStorage.setItem(memberStorageKey(WORLD_STORAGE_KEY, m.id), JSON.stringify(m.visitedCountries || []));
+    });
+    state.activeMemberId = state.members[0].id;
+    persistMembers();
+    updateMemberSwitchUI();
     renderVisitedList();
     renderStats();
     renderChart();
@@ -757,11 +1103,17 @@
   // logged in, so neither side silently loses data.
   function reconcileAfterLogin() {
     fetchCloudRow().then(function (row) {
-      var localHasData =
-        state.visitedByView.china.length > 0 || state.visitedByView.world.length > 0;
+      var localHasData = state.members.some(function (m) {
+        var v = state.visitedByMember[m.id];
+        return v.china.length > 0 || v.world.length > 0;
+      });
       var cloudHasData =
         row &&
-        ((row.visited_cities && row.visited_cities.length > 0) ||
+        ((row.members &&
+          row.members.some(function (m) {
+            return (m.visitedCities && m.visitedCities.length > 0) || (m.visitedCountries && m.visitedCountries.length > 0);
+          })) ||
+          (row.visited_cities && row.visited_cities.length > 0) ||
           (row.visited_countries && row.visited_countries.length > 0));
 
       if (!cloudHasData) {
@@ -864,6 +1216,7 @@
 
   // ---------- Init ----------
 
+  updateMemberSwitchUI();
   initChart();
   renderVisitedList();
   renderStats();

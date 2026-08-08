@@ -11,6 +11,7 @@
     <header class="topbar">
       <h1>我的足迹地图</h1>
       <div class="header-switches">
+        <div id="memberSwitch" class="member-switch" role="group" aria-label="成员切换"></div>
         <div class="view-switch" role="group" aria-label="地图范围">
           <button class="view-btn" data-view="china" type="button">中国地图</button>
           <button class="view-btn" data-view="world" type="button">世界地图</button>
@@ -44,6 +45,21 @@
           <button id="authSignupBtn" class="secondary-btn" type="button">注册新账号</button>
         </div>
         <p id="authMessage" class="auth-message"></p>
+      </div>
+    </div>
+
+    <div id="memberModalOverlay" class="auth-modal-overlay hidden">
+      <div class="auth-modal">
+        <button id="memberModalCloseBtn" class="auth-modal-close" type="button" aria-label="关闭">×</button>
+        <h2>管理成员</h2>
+        <p class="auth-modal-desc">
+          每个成员的到访城市/国家互相独立，用各自的颜色在地图上高亮。点击色块可以更换颜色。
+        </p>
+        <ul id="memberManageList" class="member-manage-list"></ul>
+        <div class="member-add-row">
+          <input id="newMemberNameInput" class="auth-input" type="text" placeholder="新成员姓名" autocomplete="off" />
+          <button id="newMemberAddBtn" class="confirm-btn" type="button">添加成员</button>
+        </div>
       </div>
     </div>
 
