@@ -20,8 +20,32 @@
           <button class="mode-btn" data-mode="province" type="button">省份点亮</button>
           <button class="mode-btn" data-mode="city" type="button">仅点亮城市</button>
         </div>
+        <div class="auth-widget">
+          <button id="authOpenBtn" class="auth-btn" type="button">登录 / 注册</button>
+          <div id="authStatus" class="auth-status hidden">
+            <span id="authEmail" class="auth-email"></span>
+            <button id="authLogoutBtn" class="auth-logout-btn" type="button">退出</button>
+          </div>
+        </div>
       </div>
     </header>
+
+    <div id="authModalOverlay" class="auth-modal-overlay hidden">
+      <div class="auth-modal">
+        <button id="authCloseBtn" class="auth-modal-close" type="button" aria-label="关闭">×</button>
+        <h2>登录 / 注册</h2>
+        <p class="auth-modal-desc">
+          登录后，你点亮的城市/国家会保存到云端；换设备、清浏览器缓存后重新登录即可找回。不登录也完全可以正常使用，数据只存在本机。
+        </p>
+        <input id="authEmailInput" class="auth-input" type="email" placeholder="邮箱" autocomplete="email" />
+        <input id="authPasswordInput" class="auth-input" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password" />
+        <div class="auth-modal-actions">
+          <button id="authLoginBtn" class="confirm-btn" type="button">登录</button>
+          <button id="authSignupBtn" class="secondary-btn" type="button">注册新账号</button>
+        </div>
+        <p id="authMessage" class="auth-message"></p>
+      </div>
+    </div>
 
     <main class="layout">
       <section class="map-section">
@@ -70,9 +94,11 @@
   </div>
 
   <script src="js/vendor/echarts.min.js"></script>
+  <script src="js/vendor/supabase.js"></script>
   <script src="js/cities-data.js"></script>
   <script src="js/province-labels-data.js"></script>
   <script src="js/countries-data.js"></script>
+  <script src="js/supabase-config.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

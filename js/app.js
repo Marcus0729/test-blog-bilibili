@@ -74,6 +74,7 @@
     selectedItem: null,
     activeSuggestIndex: -1,
     currentSuggestions: [],
+    auth: { user: null },
   };
 
   var chart = null;
@@ -95,6 +96,17 @@
     groupCount: document.getElementById('groupCount'),
     groupCountLabel: document.getElementById('groupCountLabel'),
     visitedList: document.getElementById('visitedList'),
+    authOpenBtn: document.getElementById('authOpenBtn'),
+    authStatus: document.getElementById('authStatus'),
+    authEmail: document.getElementById('authEmail'),
+    authLogoutBtn: document.getElementById('authLogoutBtn'),
+    authModalOverlay: document.getElementById('authModalOverlay'),
+    authCloseBtn: document.getElementById('authCloseBtn'),
+    authEmailInput: document.getElementById('authEmailInput'),
+    authPasswordInput: document.getElementById('authPasswordInput'),
+    authLoginBtn: document.getElementById('authLoginBtn'),
+    authSignupBtn: document.getElementById('authSignupBtn'),
+    authMessage: document.getElementById('authMessage'),
   };
 
   function dataset() {
@@ -588,6 +600,7 @@
     renderVisitedList();
     renderStats();
     renderChart();
+    if (isLoggedIn()) pushLocalToCloud();
 
     els.searchHint.textContent = '已添加「' + item.name + '」';
     els.searchInput.value = '';
@@ -604,6 +617,7 @@
     renderVisitedList();
     renderStats();
     renderChart();
+    if (isLoggedIn()) pushLocalToCloud();
   }
 
   function renderVisitedList() {
@@ -663,9 +677,195 @@
     els.groupCount.textContent = Object.keys(groups).length;
   }
 
+  // ---------- Auth & cloud sync ----------
+
+  var CLOUD_TABLE = 'travel_data';
+
+  function isLoggedIn() {
+    return !!state.auth.user;
+  }
+
+  function setAuthMessage(text, type) {
+    els.authMessage.textContent = text || '';
+    els.authMessage.className = 'auth-message' + (type ? ' ' + type : '');
+  }
+
+  function openAuthModal() {
+    setAuthMessage('');
+    els.authModalOverlay.classList.remove('hidden');
+  }
+
+  function closeAuthModal() {
+    els.authModalOverlay.classList.add('hidden');
+  }
+
+  function updateAuthUI() {
+    if (isLoggedIn()) {
+      els.authOpenBtn.classList.add('hidden');
+      els.authStatus.classList.remove('hidden');
+      els.authEmail.textContent = state.auth.user.email;
+    } else {
+      els.authOpenBtn.classList.remove('hidden');
+      els.authStatus.classList.add('hidden');
+      els.authEmail.textContent = '';
+    }
+  }
+
+  function fetchCloudRow() {
+    if (!supabaseClient || !isLoggedIn()) return Promise.resolve(null);
+    return supabaseClient
+      .from(CLOUD_TABLE)
+      .select('visited_cities, visited_countries')
+      .eq('user_id', state.auth.user.id)
+      .maybeSingle()
+      .then(function (res) {
+        if (res.error) {
+          console.error('load cloud data failed', res.error);
+          return null;
+        }
+        return res.data;
+      });
+  }
+
+  function pushLocalToCloud() {
+    if (!supabaseClient || !isLoggedIn()) return Promise.resolve();
+    return supabaseClient
+      .from(CLOUD_TABLE)
+      .upsert({
+        user_id: state.auth.user.id,
+        visited_cities: state.visitedByView.china,
+        visited_countries: state.visitedByView.world,
+        updated_at: new Date().toISOString(),
+      })
+      .then(function (res) {
+        if (res.error) console.error('sync to cloud failed', res.error);
+      });
+  }
+
+  function applyCloudRow(row) {
+    state.visitedByView.china = (row && row.visited_cities) || [];
+    state.visitedByView.world = (row && row.visited_countries) || [];
+    localStorage.setItem(CHINA_STORAGE_KEY, JSON.stringify(state.visitedByView.china));
+    localStorage.setItem(WORLD_STORAGE_KEY, JSON.stringify(state.visitedByView.world));
+    renderVisitedList();
+    renderStats();
+    renderChart();
+  }
+
+  // Decide how to reconcile whatever is on this device (guest/local data)
+  // with whatever is already saved in the cloud for the account that just
+  // logged in, so neither side silently loses data.
+  function reconcileAfterLogin() {
+    fetchCloudRow().then(function (row) {
+      var localHasData =
+        state.visitedByView.china.length > 0 || state.visitedByView.world.length > 0;
+      var cloudHasData =
+        row &&
+        ((row.visited_cities && row.visited_cities.length > 0) ||
+          (row.visited_countries && row.visited_countries.length > 0));
+
+      if (!cloudHasData) {
+        pushLocalToCloud();
+        return;
+      }
+      if (!localHasData) {
+        applyCloudRow(row);
+        return;
+      }
+      var useCloud = window.confirm(
+        '本机有尚未同步的到访记录，云端也已保存有数据。\n' +
+          '点击"确定"使用云端数据（本机未同步的记录会被覆盖）；\n' +
+          '点击"取消"保留本机数据并覆盖云端。'
+      );
+      if (useCloud) {
+        applyCloudRow(row);
+      } else {
+        pushLocalToCloud();
+      }
+    });
+  }
+
+  els.authOpenBtn.addEventListener('click', openAuthModal);
+  els.authCloseBtn.addEventListener('click', closeAuthModal);
+  els.authModalOverlay.addEventListener('click', function (e) {
+    if (e.target === els.authModalOverlay) closeAuthModal();
+  });
+
+  els.authLogoutBtn.addEventListener('click', function () {
+    if (!supabaseClient) return;
+    supabaseClient.auth.signOut();
+  });
+
+  function requireAuthForm() {
+    if (!supabaseClient) {
+      setAuthMessage('云端存储未配置。', 'error');
+      return null;
+    }
+    var email = els.authEmailInput.value.trim();
+    var password = els.authPasswordInput.value;
+    if (!email || !password) {
+      setAuthMessage('请输入邮箱和密码', 'error');
+      return null;
+    }
+    return { email: email, password: password };
+  }
+
+  els.authLoginBtn.addEventListener('click', function () {
+    var form = requireAuthForm();
+    if (!form) return;
+    setAuthMessage('登录中…');
+    supabaseClient.auth.signInWithPassword(form).then(function (res) {
+      if (res.error) {
+        setAuthMessage(res.error.message, 'error');
+        return;
+      }
+      setAuthMessage('登录成功', 'success');
+      setTimeout(closeAuthModal, 600);
+    });
+  });
+
+  els.authSignupBtn.addEventListener('click', function () {
+    var form = requireAuthForm();
+    if (!form) return;
+    if (form.password.length < 6) {
+      setAuthMessage('密码至少需要 6 位', 'error');
+      return;
+    }
+    setAuthMessage('注册中…');
+    supabaseClient.auth.signUp(form).then(function (res) {
+      if (res.error) {
+        setAuthMessage(res.error.message, 'error');
+        return;
+      }
+      if (res.data && res.data.user && !res.data.session) {
+        setAuthMessage('注册成功，请查收邮箱并点击确认链接后再登录。', 'success');
+        return;
+      }
+      setAuthMessage('注册成功并已登录', 'success');
+      setTimeout(closeAuthModal, 600);
+    });
+  });
+
+  els.authPasswordInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') els.authLoginBtn.click();
+  });
+
+  function initAuth() {
+    if (!supabaseClient) return;
+    supabaseClient.auth.onAuthStateChange(function (event, session) {
+      var wasLoggedIn = isLoggedIn();
+      state.auth.user = session ? session.user : null;
+      updateAuthUI();
+      if (!wasLoggedIn && state.auth.user) {
+        reconcileAfterLogin();
+      }
+    });
+  }
+
   // ---------- Init ----------
 
   initChart();
   renderVisitedList();
   renderStats();
+  initAuth();
 })();

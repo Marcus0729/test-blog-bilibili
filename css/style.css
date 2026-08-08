@@ -110,6 +110,161 @@ body {
   font-weight: 600;
 }
 
+.auth-widget {
+  display: flex;
+  align-items: center;
+}
+
+.auth-btn,
+.auth-logout-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-btn:hover {
+  color: var(--text);
+  border-color: var(--accent-blue);
+}
+
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.auth-status.hidden {
+  display: none;
+}
+
+.auth-email {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-logout-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.auth-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.auth-modal-overlay.hidden {
+  display: none;
+}
+
+.auth-modal {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  margin: 20px;
+  background: var(--panel-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.auth-modal h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.auth-modal-desc {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.auth-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.auth-input:focus {
+  border-color: var(--accent-blue);
+}
+
+.auth-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.auth-modal-actions .confirm-btn {
+  margin-top: 0;
+  background: var(--accent-blue);
+}
+
+.secondary-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.secondary-btn:hover {
+  opacity: 0.85;
+}
+
+.auth-message {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 16px;
+  line-height: 1.5;
+}
+
+.auth-message.error {
+  color: #d33;
+}
+
+.auth-message.success {
+  color: #2a9d5c;
+}
+
 .layout {
   flex: 1;
   display: flex;
