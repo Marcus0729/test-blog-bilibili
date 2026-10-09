@@ -71,9 +71,17 @@ python3 -m http.server 8000
 
 1. 登录 [Supabase 控制台](https://supabase.com/dashboard)，进入本项目（ref `eonzswndrzvxzbkwhjwu`）。
 2. 左侧 **Authentication → Users**，在列表中找到自己的邮箱（忘记用的是哪个邮箱也可以在这里看到全部注册账号）。
-3. 重置密码，任选其一：
-   - **推荐**：在该用户详情里直接设置一个新密码；
-   - 或者点 **Send password recovery** 发送重置邮件。注意应用里还没有"设置新密码"的页面，点邮件链接只会让你直接登录进应用；而且链接跳转地址取决于 **Authentication → URL Configuration** 里的 Site URL，需要设为上面的在线地址。
+3. 重置密码。最稳妥的办法是在左侧 **SQL Editor** 里直接改（把邮箱和新密码换成你自己的）：
+
+   ```sql
+   update auth.users
+   set encrypted_password = crypt('你的新密码', gen_salt('bf'))
+   where email = '你的邮箱';
+   ```
+
+   提示 `Success. 1 row affected` 即修改成功（`0 rows` 说明邮箱写错了）。
+
+   > 不建议用 **Send password recovery** 邮件：应用里还没有"设置新密码"的页面；并且邮件链接会跳转到 **Authentication → URL Configuration** 里的 Site URL，默认是 `http://localhost:3000`，没改的话会打不开。若要用邮件方式，先把 Site URL 改成上面的在线地址，再重新发送（链接只能用一次，且约 1 小时后过期）。
 4. 用新密码在应用里登录，到访数据存在 `travel_data` 表里，不会因为重置密码而丢失。
 
 如果连 Supabase 控制台也登不上，先通过 Supabase 自身的登录页找回 Supabase 账号（通常是用 GitHub 登录的）。
